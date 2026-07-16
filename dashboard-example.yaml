@@ -1,0 +1,22 @@
+# Beispiel für eine Lovelace-View mit der Klima-Sparbuch-Karte.
+# In deinem Dashboard (Raw-Konfigurationseditor) einfügen oder als
+# Ausgangspunkt für die UI-Kartenkonfiguration ("YAML bearbeiten") nutzen.
+
+title: Klima-Sparbuch
+views:
+  - title: Mobilität
+    path: mobilitaet
+    cards:
+      - type: custom:mobility-tracker-card
+        title: Klima-Sparbuch
+        total_km_entity: input_number.mobility_total_km
+        co2_entity: sensor.mobility_co2_saved
+        trees_entity: sensor.mobility_trees_saved
+        money_entity: sensor.mobility_money_saved
+        routes:
+          - name: Weg zur Kita
+            km: 1.2
+            mode: walk
+          - name: Weg zur Arbeit
+            km: 4.5
+            mode: bike
