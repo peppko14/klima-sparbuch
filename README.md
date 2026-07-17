@@ -28,9 +28,9 @@ Home-Assistant-Logbuch geschrieben - das ist gleichzeitig das Ledger der Karte.
 
 ### Manuell (ohne HACS)
 
-1. `mobility-tracker-card.js` nach `config/www/` kopieren.
+1. `klima-sparbuch.js` nach `config/www/` kopieren.
 2. Unter **Einstellungen → Dashboards → Ressourcen** eine neue Ressource
-   hinzufügen: `/local/mobility-tracker-card.js`, Typ **JavaScript-Modul**.
+   hinzufügen: `/local/klima-sparbuch.js`, Typ **JavaScript-Modul**.
 
 ## Einrichtung
 
@@ -40,24 +40,54 @@ Home-Assistant-Logbuch geschrieben - das ist gleichzeitig das Ledger der Karte.
    die gleichen Entity-IDs achten).
 2. Home Assistant neu starten bzw. **Entwicklerwerkzeuge → YAML →
    Konfiguration neu laden**.
-3. Die Karte gemäß `dashboard-example.yaml` in ein Dashboard einfügen und die
+3. **Live-Spritpreis einrichten (Tankerkönig):**
+   - Kostenlosen API-Key auf [tankerkoenig.de](https://creativecommons.tankerkoenig.de/) beantragen.
+   - In Home Assistant: **Einstellungen → Geräte & Dienste → Integration hinzufügen → Tankerkönig**.
+   - API-Key eingeben, gewünschte Tankstelle(n) in der Nähe auswählen.
+   - Unter **Entwicklerwerkzeuge → Zustände** nach `tankerkoenig` filtern, um die
+     Entity-ID für deinen Kraftstoff zu finden (z. B.
+     `sensor.tankerkoenig_<stationsname>_e10`).
+   - Diese Entity-ID als `fuel_price_entity` in der Kartenkonfiguration eintragen.
+   - Ist die Tankstelle gerade geschlossen (Sensor "unavailable"), greift die
+     Karte automatisch auf `input_number.mobility_fuel_price` zurück - diesen
+     Wert also ab und zu manuell aktuell halten, falls das öfter vorkommt.
+4. Die Karte gemäß `dashboard-example.yaml` in ein Dashboard einfügen und die
    `routes:`-Liste an deine eigenen Wege anpassen.
 
 ## Kartenoptionen
 
-| Option             | Pflicht | Beschreibung                                              |
-|--------------------|---------|-------------------------------------------------------------|
-| `title`            | Nein    | Überschrift der Karte                                       |
-| `total_km_entity`  | Ja      | `input_number`-Entity für die Gesamt-km                      |
-| `co2_entity`       | Nein    | Sensor für CO₂ gespart (kg); ohne Angabe rechnet die Karte selbst mit Standardwerten |
-| `trees_entity`     | Nein    | Sensor für Bäume-Äquivalent                                  |
-| `money_entity`     | Nein    | Sensor für gespartes Spritgeld (€)                           |
-| `routes`           | Nein    | Liste fester Wege: `name`, `km` (einfacher Weg), `mode` (`walk`/`bike`) |
+| Option                       | Pflicht | Beschreibung                                              |
+|------------------------------|---------|-----------------------------------------------------------|
+| `title`                      | Nein    | Überschrift der Karte                                       |
+| `total_km_entity`            | Ja      | `input_number`-Entity für die Gesamt-km                      |
+| `co2_entity`                 | Nein    | Sensor für CO₂ gespart (kg); ohne Angabe rechnet die Karte selbst mit Standardwerten |
+| `trees_entity`               | Nein    | Sensor für Bäume-Äquivalent                                  |
+| `money_entity`                | Nein    | `input_number`-Zähler für gespartes Spritgeld (€) - wird pro Buchung erhöht, nicht rückwirkend neu berechnet |
+| `fuel_price_entity`           | Nein    | Sensor mit dem aktuellen Spritpreis (z. B. von Tankerkönig); wird pro Buchung eingefroren |
+| `fuel_price_fallback_entity`  | Nein    | `input_number`, Default `input_number.mobility_fuel_price` - greift, wenn `fuel_price_entity` fehlt oder "unavailable" ist |
+| `consumption_entity`          | Nein    | `input_number`, Default `input_number.mobility_fuel_consumption` |
+| `routes`                      | Nein    | Liste fester Wege: `name`, `km` (einfacher Weg), `mode` (`walk`/`bike`) - wird beim Buchen automatisch verdoppelt (Hin+Rück) |
+
+## Wie der Spritpreis berechnet wird
+
+Für jede Buchung (egal ob über einen Wege-Button oder die individuelle
+Eingabe) gilt:
+
+1. Die Karte liest `fuel_price_entity` (Live-Preis, z. B. Tankerkönig) aus.
+2. Ist dieser nicht verfügbar, wird `fuel_price_fallback_entity`
+   (`input_number.mobility_fuel_price`) genutzt.
+3. Aus diesem Preis und `consumption_entity` wird der Betrag für GENAU DIESE
+   Fahrt berechnet und zu `money_entity` addiert.
+
+Bereits gebuchte Fahrten werden dadurch nie rückwirkend verändert, auch wenn
+der Spritpreis später steigt oder fällt. Im Logbuch-Eintrag jeder Buchung
+steht zusätzlich, welcher Preis verwendet wurde und aus welcher Quelle
+(`live`, `manuell hinterlegt` oder `Standardwert`).
 
 ## Anpassen der Annahmen
 
-Die CO₂-, Verbrauchs- und Spritpreis-Werte sind eigene `input_number`-Helper
-(`mobility_car_co2_g_per_km`, `mobility_fuel_consumption`,
+Die CO₂-, Verbrauchs- und Fallback-Spritpreis-Werte sind eigene
+`input_number`-Helper (`mobility_car_co2_g_per_km`, `mobility_fuel_consumption`,
 `mobility_fuel_price`, `mobility_tree_kg_per_year`) und lassen sich jederzeit
 über die normale Home-Assistant-Oberfläche anpassen - kein Karten-Update
 nötig.
@@ -66,6 +96,38 @@ nötig.
 
 Alle Berechnungen sind Richtwerte zur Orientierung und ersetzen keine exakte
 CO₂-Bilanzierung.
+
+## Versionierung & Releases
+
+Jede Aktualisierung über `sync-repo.bat` erzeugt automatisch eine neue
+Version im Format `vX.Y`:
+
+- **Normalfall:** die hintere Zahl wird erhöht (`v1.3` → `v1.4`).
+- **Abschließendes Release:** bei der Frage "Ist dies ein abschließendes
+  Release?" mit `j` antworten - dann wird die vordere Zahl erhöht und die
+  hintere auf `0` zurückgesetzt (`v1.4` → `v2.0`).
+
+Wichtig: HACS erkennt **nur echte GitHub Releases** als neue Version, ein
+reiner Git-Tag reicht nicht aus. Das Skript legt deshalb neben dem Tag auch
+automatisch ein Release an - dafür wird die [GitHub CLI](https://cli.github.com)
+(`gh`) benötigt. Einmalig installieren und mit `gh auth login` anmelden;
+danach läuft alles automatisch im Skript mit. Ist `gh` nicht installiert,
+gibt das Skript stattdessen einen Link aus, über den du das Release manuell
+in wenigen Klicks im Browser nachträgst.
+
+### Personal Access Token - benötigte Berechtigungen
+
+Für `git push` (Commits und Tags) sowie das automatische Release reicht ein
+fine-grained Personal Access Token mit:
+
+| Einstellung        | Wert                                   |
+|---------------------|-----------------------------------------|
+| Resource owner      | dein Account                            |
+| Repository access   | Only select repositories → dieses Repo  |
+| Contents            | Read and write                          |
+| Metadata            | Read (wird automatisch gesetzt)         |
+
+Alle anderen Berechtigungen können auf "No access" bleiben.
 
 ## Später: Aufnahme in den offiziellen HACS-Store
 

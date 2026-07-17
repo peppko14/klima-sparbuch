@@ -12,7 +12,11 @@ views:
         total_km_entity: input_number.mobility_total_km
         co2_entity: sensor.mobility_co2_saved
         trees_entity: sensor.mobility_trees_saved
-        money_entity: sensor.mobility_money_saved
+        money_entity: input_number.mobility_total_money_saved
+        # Entity-ID der Tankerkönig-Integration für deine Wunsch-Tankstelle
+        # und deinen Kraftstoff (z. B. e5, e10 oder diesel) - findest du unter
+        # Entwicklerwerkzeuge > Zustände, Filter "tankerkoenig".
+        fuel_price_entity: sensor.tankerkoenig_deine_tankstelle_e10
         routes:
           - name: Weg zur Kita
             km: 1.2

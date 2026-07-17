@@ -3,17 +3,30 @@
  * Custom Lovelace Card für Home Assistant.
  *
  * Speichert nichts selbst - liest/schreibt echte Home Assistant Entities:
- *  - total_km_entity  (input_number, Pflicht)  -> Gesamt-km, wird bei jeder Buchung erhöht
- *  - co2_entity       (sensor, optional)        -> CO2 gespart in kg (Template-Sensor)
- *  - trees_entity     (sensor, optional)        -> Bäume-Äquivalent (Template-Sensor)
- *  - money_entity     (sensor, optional)        -> Spritgeld gespart in € (Template-Sensor)
+ *  - total_km_entity            (input_number, Pflicht) -> Gesamt-km, wird bei jeder Buchung erhöht
+ *  - co2_entity                 (sensor, optional)       -> CO2 gespart in kg (Template-Sensor)
+ *  - trees_entity               (sensor, optional)       -> Bäume-Äquivalent (Template-Sensor)
+ *  - money_entity               (input_number, Pflicht für Geld-Tracking)
+ *                                  -> gespartes Spritgeld in €, wird bei jeder Buchung
+ *                                     um den Betrag DIESER Fahrt erhöht (nicht neu berechnet!)
+ *  - fuel_price_entity          (sensor, optional)  -> Live-Spritpreis, z. B. von der
+ *                                     Tankerkönig-Integration. Wird zum Zeitpunkt jeder
+ *                                     Buchung ausgelesen und für diese Fahrt "eingefroren".
+ *  - fuel_price_fallback_entity (input_number, optional, Default: input_number.mobility_fuel_price)
+ *                                  -> wird genutzt, wenn fuel_price_entity fehlt oder gerade
+ *                                     "unavailable"/"unknown" ist (z. B. Tankstelle geschlossen).
+ *  - consumption_entity         (input_number, optional, Default: input_number.mobility_fuel_consumption)
  *
- * Fehlen co2/trees/money Entities, rechnet die Karte mit eingebauten
- * Standardwerten (siehe DEFAULTS) selbst - damit sie auch ohne Template-Sensoren
- * sofort nutzbar ist.
+ * Fehlen co2/trees Entities, rechnet die Karte mit eingebauten Standardwerten
+ * (siehe DEFAULTS) selbst - damit sie auch ohne Template-Sensoren sofort nutzbar ist.
+ *
+ * Der Spritpreis wird PRO BUCHUNG eingefroren und direkt in money_entity aufaddiert.
+ * Ändert sich der Preis später, wirkt sich das nicht rückwirkend auf bereits
+ * gebuchte Fahrten aus.
  *
  * Jede Buchung wird zusätzlich per logbook.log ins Home Assistant Logbuch
- * geschrieben und von dort für die "Letzte Buchungen"-Liste wieder abgerufen.
+ * geschrieben (inkl. des an diesem Tag verwendeten Spritpreises) und von dort
+ * für die "Letzte Buchungen"-Liste wieder abgerufen.
  */
 
 const DEFAULTS = {
@@ -54,7 +67,10 @@ class MobilityTrackerCard extends HTMLElement {
       total_km_entity: "input_number.mobility_total_km",
       co2_entity: "sensor.mobility_co2_saved",
       trees_entity: "sensor.mobility_trees_saved",
-      money_entity: "sensor.mobility_money_saved",
+      money_entity: "input_number.mobility_total_money_saved",
+      fuel_price_entity: "sensor.tankerkoenig_deine_tankstelle_e10",
+      consumption_entity: "input_number.mobility_fuel_consumption",
+      fuel_price_fallback_entity: "input_number.mobility_fuel_price",
       routes: [
         { name: "Weg zur Kita", km: 1.2, mode: "walk" }
       ]
@@ -67,7 +83,12 @@ class MobilityTrackerCard extends HTMLElement {
         "mobility-tracker-card: 'total_km_entity' muss in der Kartenkonfiguration angegeben werden (ein input_number Helper)."
       );
     }
-    this._config = Object.assign({ title: "Klima-Sparbuch", routes: [] }, config);
+    this._config = Object.assign({
+      title: "Klima-Sparbuch",
+      routes: [],
+      consumption_entity: "input_number.mobility_fuel_consumption",
+      fuel_price_fallback_entity: "input_number.mobility_fuel_price"
+    }, config);
     this._logbook = [];
     this._logbookLoaded = false;
 
@@ -354,9 +375,28 @@ class MobilityTrackerCard extends HTMLElement {
   _fallbackCalc(totalKm) {
     const co2Kg = totalKm * (DEFAULTS.co2GPerKm / 1000);
     const trees = DEFAULTS.treeKgPerYear > 0 ? co2Kg / DEFAULTS.treeKgPerYear : 0;
-    const costPerKm = (DEFAULTS.consumptionLPer100 / 100) * DEFAULTS.fuelPriceEurPerL;
-    const money = totalKm * costPerKm;
-    return { co2Kg, trees, money };
+    return { co2Kg, trees };
+  }
+
+  // Ermittelt den Spritpreis, der für die JETZT stattfindende Buchung
+  // eingefroren wird: bevorzugt eine Live-Quelle (z. B. Tankerkönig),
+  // sonst der manuell gepflegte Fallback-Helper, sonst ein Default.
+  _readFuelPrice() {
+    const cfg = this._config;
+    if (cfg.fuel_price_entity && this._hass.states[cfg.fuel_price_entity]) {
+      const live = this._hass.states[cfg.fuel_price_entity];
+      const liveVal = parseFloat(live.state);
+      if (!Number.isNaN(liveVal) && live.state !== "unavailable" && live.state !== "unknown") {
+        return { price: liveVal, source: "live" };
+      }
+    }
+    const fallbackId = cfg.fuel_price_fallback_entity || "input_number.mobility_fuel_price";
+    const fallbackEntity = this._hass.states[fallbackId];
+    const fallbackVal = fallbackEntity ? parseFloat(fallbackEntity.state) : NaN;
+    if (!Number.isNaN(fallbackVal)) {
+      return { price: fallbackVal, source: "fallback" };
+    }
+    return { price: DEFAULTS.fuelPriceEurPerL, source: "default" };
   }
 
   _renderValues() {
@@ -369,17 +409,22 @@ class MobilityTrackerCard extends HTMLElement {
     const treesEntity = this._config.trees_entity && this._hass.states[this._config.trees_entity];
     const moneyEntity = this._config.money_entity && this._hass.states[this._config.money_entity];
 
-    let co2Kg, trees, money;
-    if (co2Entity && treesEntity && moneyEntity && !isNaN(parseFloat(co2Entity.state))) {
+    let co2Kg, trees;
+    if (co2Entity && treesEntity && !Number.isNaN(parseFloat(co2Entity.state))) {
       co2Kg = parseFloat(co2Entity.state) || 0;
       trees = parseFloat(treesEntity.state) || 0;
-      money = parseFloat(moneyEntity.state) || 0;
     } else {
       const fb = this._fallbackCalc(totalKm);
       co2Kg = fb.co2Kg;
       trees = fb.trees;
-      money = fb.money;
     }
+
+    // Geld kommt IMMER direkt aus money_entity - das ist ein Zähler, der pro
+    // Buchung um den an diesem Tag geltenden Betrag erhöht wird, keine
+    // rückwirkende Neuberechnung aus totalKm.
+    const money = moneyEntity && !Number.isNaN(parseFloat(moneyEntity.state))
+      ? parseFloat(moneyEntity.state)
+      : null;
 
     this.shadowRoot.querySelector(".co2-value").textContent = fmtDE(co2Kg, 1) + " kg";
     this.shadowRoot.querySelector(".tree-value").textContent = fmtDE(trees, 1) + " Bäume";
@@ -392,9 +437,9 @@ class MobilityTrackerCard extends HTMLElement {
     }
     treeRow.innerHTML = treeHtml + (trees > 10 ? `<span style="align-self:center;font-size:11px;color:var(--secondary-text-color);margin-left:2px;">+${fmtDE(trees - 10, 1)}</span>` : "");
 
-    this.shadowRoot.querySelector(".money-value").textContent = fmtDE(money, 2) + " €";
+    this.shadowRoot.querySelector(".money-value").textContent = money === null ? "–" : fmtDE(money, 2) + " €";
     const coinSvg = this.shadowRoot.querySelector(".coin-svg");
-    const coinCount = Math.min(6, Math.max(1, Math.round(money / 5)));
+    const coinCount = money === null ? 1 : Math.min(6, Math.max(1, Math.round(money / 5)));
     let coinHtml = "";
     for (let i = 0; i < coinCount; i++) {
       const y = 46 - i * 6;
@@ -409,14 +454,35 @@ class MobilityTrackerCard extends HTMLElement {
     const current = entity ? parseFloat(entity.state) || 0 : 0;
     const newTotal = Math.round((current + km) * 100) / 100;
 
+    // Spritpreis für GENAU DIESE Buchung einfrieren (live-Quelle bevorzugt).
+    const { price, source } = this._readFuelPrice();
+    const consumptionEntity = this._hass.states[this._config.consumption_entity];
+    const consumption = consumptionEntity && !Number.isNaN(parseFloat(consumptionEntity.state))
+      ? parseFloat(consumptionEntity.state)
+      : DEFAULTS.consumptionLPer100;
+    const costPerKm = (consumption / 100) * price;
+    const tripMoney = Math.round(km * costPerKm * 100) / 100;
+
     try {
       await this._hass.callService("input_number", "set_value", {
         entity_id: this._config.total_km_entity,
         value: newTotal
       });
+
+      if (this._config.money_entity && this._hass.states[this._config.money_entity]) {
+        const moneyEntity = this._hass.states[this._config.money_entity];
+        const currentMoney = parseFloat(moneyEntity.state) || 0;
+        const newMoney = Math.round((currentMoney + tripMoney) * 100) / 100;
+        await this._hass.callService("input_number", "set_value", {
+          entity_id: this._config.money_entity,
+          value: newMoney
+        });
+      }
+
+      const sourceLabel = source === "live" ? "live" : source === "fallback" ? "manuell hinterlegt" : "Standardwert";
       await this._hass.callService("logbook", "log", {
         name: this._config.title || "Klima-Sparbuch",
-        message: `${label}: ${fmtDE(km, 1)} km (${modeLabel(mode)}) gebucht`,
+        message: `${label}: ${fmtDE(km, 1)} km (${modeLabel(mode)}) gebucht · ${fmtDE(tripMoney, 2)} € gespart (Spritpreis ${fmtDE(price, 2)} €/l, ${sourceLabel})`,
         entity_id: this._config.total_km_entity
       });
       this._fetchLogbook();
