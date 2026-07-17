@@ -1,0 +1,104 @@
+# ---------------------------------------------------------------------------
+# Klima-Sparbuch - Helper & Template-Sensoren
+#
+# Diese Blöcke in deine configuration.yaml einfügen (oder per UI unter
+# Einstellungen > Geräte & Dienste > Hilfsmittel anlegen - dann diese Datei
+# nur als Referenz für Namen/Einheiten nutzen).
+#
+# Nach dem Einfügen: Entwicklerwerkzeuge > YAML > "Konfiguration neu laden"
+# (oder Home Assistant neu starten).
+# ---------------------------------------------------------------------------
+
+input_number:
+  mobility_total_km:
+    name: "Klimafreundlich zurückgelegte Strecke"
+    min: 0
+    max: 100000
+    step: 0.1
+    unit_of_measurement: "km"
+    icon: mdi:map-marker-distance
+
+  mobility_car_co2_g_per_km:
+    name: "CO2-Ausstoß Auto pro km"
+    min: 0
+    max: 500
+    step: 1
+    unit_of_measurement: "g/km"
+    initial: 120
+    icon: mdi:molecule-co2
+
+  mobility_fuel_consumption:
+    name: "Kraftstoffverbrauch"
+    min: 0
+    max: 30
+    step: 0.1
+    unit_of_measurement: "l/100km"
+    initial: 6.5
+    icon: mdi:gas-station
+
+  mobility_fuel_price:
+    name: "Kraftstoffpreis (Fallback)"
+    min: 0
+    max: 5
+    step: 0.01
+    unit_of_measurement: "€/l"
+    initial: 1.75
+    icon: mdi:currency-eur
+    # Wird von der Karte nur genutzt, wenn keine Live-Preisquelle (z. B.
+    # Tankerkönig) konfiguriert ist oder diese gerade "unavailable" meldet.
+    # Manuell aktuell halten, falls keine Live-Quelle genutzt wird.
+
+  mobility_tree_kg_per_year:
+    name: "CO2-Bindung pro Baum und Jahr"
+    min: 0
+    max: 100
+    step: 0.1
+    unit_of_measurement: "kg"
+    initial: 12.5
+    icon: mdi:tree
+
+  mobility_total_money_saved:
+    name: "Gespartes Spritgeld (Gesamt)"
+    min: 0
+    max: 1000000
+    step: 0.01
+    unit_of_measurement: "€"
+    icon: mdi:cash-multiple
+    # WICHTIG: Dieser Wert wird NICHT aus total_km berechnet, sondern von der
+    # Karte bei jeder Buchung direkt um den Betrag DIESER Fahrt erhöht - mit
+    # dem Spritpreis, der zum Buchungszeitpunkt galt. So bleiben bereits
+    # gebuchte Fahrten unverändert, auch wenn der Spritpreis später schwankt.
+
+# ---------------------------------------------------------------------------
+# Template-Sensoren: berechnen CO2 und Bäume-Äquivalent aus total_km. Das
+# gesparte Spritgeld wird NICHT mehr hier berechnet - dafür sorgt die Karte
+# selbst pro Buchung (siehe input_number.mobility_total_money_saved oben),
+# damit der jeweils tagesaktuelle Spritpreis eingefroren wird.
+# ---------------------------------------------------------------------------
+
+sensor:
+  - platform: template
+    sensors:
+      mobility_co2_saved:
+        friendly_name: "CO2 gespart"
+        unit_of_measurement: "kg"
+        icon_template: mdi:molecule-co2
+        value_template: >
+          {{ (states('input_number.mobility_total_km') | float(0)
+              * states('input_number.mobility_car_co2_g_per_km') | float(0)
+              / 1000) | round(1) }}
+
+      mobility_trees_saved:
+        friendly_name: "Bäume-Äquivalent"
+        unit_of_measurement: "Bäume"
+        icon_template: mdi:tree
+        value_template: >
+          {% set co2 = states('sensor.mobility_co2_saved') | float(0) %}
+          {% set tree_kg = states('input_number.mobility_tree_kg_per_year') | float(0) %}
+          {{ (co2 / tree_kg) | round(1) if tree_kg > 0 else 0 }}
+
+# Hinweis: CO2 und Bäume-Äquivalent nutzen weiterhin die AKTUELLEN
+# input_number-Einstellungen für g/km bzw. kg/Baum und Jahr - das ist hier
+# unkritisch, da sich diese Annahmen selten ändern. Nur der Spritpreis
+# schwankt täglich, deshalb läuft die Geld-Berechnung separat pro Buchung.
+

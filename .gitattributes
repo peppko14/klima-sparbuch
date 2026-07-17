@@ -1,0 +1,7 @@
+# Einheitliche Zeilenenden, unabhängig vom lokalen core.autocrlf.
+# Text-Dateien im Repo mit LF speichern (Standard, kleinere/saubere Diffs).
+* text=auto eol=lf
+
+# Windows-Batch-Skripte brauchen klassisch CRLF.
+*.bat text eol=crlf
+*.cmd text eol=crlf
