@@ -1,0 +1,7 @@
+# Lokale Sync-/Setup-Skripte - nur fuer die lokale Arbeitsumgebung gedacht,
+# nicht Teil des veroeffentlichten HACS-Repositories.
+setup-once.bat
+sync-repo.bat
+
+# Persoenliche Workflow-Notizen (Versionierung, Token-Setup) - nicht oeffentlich.
+WORKFLOW-NOTES.md
