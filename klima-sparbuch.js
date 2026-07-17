@@ -27,6 +27,10 @@
  * Jede Buchung wird zusätzlich per logbook.log ins Home Assistant Logbuch
  * geschrieben (inkl. des an diesem Tag verwendeten Spritpreises) und von dort
  * für die "Letzte Buchungen"-Liste wieder abgerufen.
+ *
+ * Es wird NICHT unterschieden, ob zu Fuß, mit dem Rad oder sonstwie
+ * klimafreundlich zurückgelegt wurde - relevant ist nur, dass es nicht das
+ * Auto war.
  */
 
 const DEFAULTS = {
@@ -45,13 +49,7 @@ function fmtDE(value, decimals) {
   });
 }
 
-function modeIcon(mode) {
-  return mode === "bike" ? "🚲" : "🚶";
-}
-
-function modeLabel(mode) {
-  return mode === "bike" ? "Rad" : "zu Fuß";
-}
+const ROUTE_ICON = "🌱";
 
 function treeGlyph(color) {
   return `<svg viewBox="0 0 20 34" width="14" xmlns="http://www.w3.org/2000/svg">
@@ -72,7 +70,7 @@ class MobilityTrackerCard extends HTMLElement {
       consumption_entity: "input_number.mobility_fuel_consumption",
       fuel_price_fallback_entity: "input_number.mobility_fuel_price",
       routes: [
-        { name: "Weg zur Kita", km: 1.2, mode: "walk" }
+        { name: "Weg zur Kita", km: 1.2 }
       ]
     };
   }
@@ -168,13 +166,6 @@ class MobilityTrackerCard extends HTMLElement {
             <div class="field">
               <label>km (gesamt)</label>
               <input type="number" class="custom-km" min="0" step="0.1" placeholder="z. B. 4.8" required>
-            </div>
-            <div class="field">
-              <label>Fortbewegung</label>
-              <select class="custom-mode">
-                <option value="walk">🚶 zu Fuß</option>
-                <option value="bike">🚲 Rad</option>
-              </select>
             </div>
             <div class="field grow">
               <label>Bezeichnung</label>
@@ -317,7 +308,6 @@ class MobilityTrackerCard extends HTMLElement {
       const errorEl = this.shadowRoot.querySelector(".form-error");
       errorEl.textContent = "";
       const kmInput = this.shadowRoot.querySelector(".custom-km");
-      const modeInput = this.shadowRoot.querySelector(".custom-mode");
       const labelInput = this.shadowRoot.querySelector(".custom-label");
 
       const km = parseFloat(kmInput.value);
@@ -326,7 +316,7 @@ class MobilityTrackerCard extends HTMLElement {
         return;
       }
       const label = labelInput.value.trim() || "Eigene Eingabe";
-      this._logTrip(km, modeInput.value, label);
+      this._logTrip(km, label);
       kmInput.value = "";
       labelInput.value = "";
     });
@@ -344,7 +334,7 @@ class MobilityTrackerCard extends HTMLElement {
       return `
         <button class="route-btn" data-index="${i}" type="button">
           <span class="rb-left">
-            <span class="rb-icon">${modeIcon(r.mode)}</span>
+            <span class="rb-icon">${ROUTE_ICON}</span>
             <span>
               <div class="rb-name">${this._escape(r.name)}</div>
               <div class="rb-dist">${fmtDE(r.km, 1)} km einfach · ${fmtDE(roundTrip, 1)} km Hin+Rück</div>
@@ -357,7 +347,7 @@ class MobilityTrackerCard extends HTMLElement {
     list.querySelectorAll(".route-btn").forEach((btn) => {
       btn.addEventListener("click", () => {
         const route = routes[parseInt(btn.dataset.index, 10)];
-        if (route) this._logTrip(route.km * 2, route.mode, route.name);
+        if (route) this._logTrip(route.km * 2, route.name);
       });
     });
   }
@@ -448,7 +438,7 @@ class MobilityTrackerCard extends HTMLElement {
     coinSvg.innerHTML = coinHtml;
   }
 
-  async _logTrip(km, mode, label) {
+  async _logTrip(km, label) {
     if (!this._hass || !this._config.total_km_entity) return;
     const entity = this._hass.states[this._config.total_km_entity];
     const current = entity ? parseFloat(entity.state) || 0 : 0;
@@ -482,7 +472,7 @@ class MobilityTrackerCard extends HTMLElement {
       const sourceLabel = source === "live" ? "live" : source === "fallback" ? "manuell hinterlegt" : "Standardwert";
       await this._hass.callService("logbook", "log", {
         name: this._config.title || "Klima-Sparbuch",
-        message: `${label}: ${fmtDE(km, 1)} km (${modeLabel(mode)}) gebucht · ${fmtDE(tripMoney, 2)} € gespart (Spritpreis ${fmtDE(price, 2)} €/l, ${sourceLabel})`,
+        message: `${label}: ${fmtDE(km, 1)} km gebucht · ${fmtDE(tripMoney, 2)} € gespart (Spritpreis ${fmtDE(price, 2)} €/l, ${sourceLabel})`,
         entity_id: this._config.total_km_entity
       });
       this._fetchLogbook();
@@ -494,21 +484,29 @@ class MobilityTrackerCard extends HTMLElement {
 
   async _fetchLogbook() {
     if (!this._hass || !this._config.total_km_entity) return;
+    this._logbookError = null;
     try {
       const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-      const entries = await this._hass.callApi(
-        "GET",
-        `logbook/${since}?entity=${this._config.total_km_entity}`
-      );
+      const path = `logbook/${since}?entity=${this._config.total_km_entity}`;
+      const entries = await this._hass.callApi("GET", path);
       this._logbook = (entries || []).slice(-8).reverse();
+      // eslint-disable-next-line no-console
+      console.debug("[klima-sparbuch] Logbuch geladen:", path, entries);
     } catch (err) {
       this._logbook = [];
+      this._logbookError = (err && err.message) ? err.message : String(err);
+      // eslint-disable-next-line no-console
+      console.error("[klima-sparbuch] Logbuch konnte nicht geladen werden:", err);
     }
     this._renderLedger();
   }
 
   _renderLedger() {
     const el = this.shadowRoot.querySelector(".ledger");
+    if (this._logbookError) {
+      el.innerHTML = `<div class="ledger-empty">Logbuch konnte nicht geladen werden (${this._escape(this._logbookError)}). Details in der Browser-Konsole (F12).</div>`;
+      return;
+    }
     if (!this._logbook || this._logbook.length === 0) {
       el.innerHTML = `<div class="ledger-empty">Noch keine Buchungen.</div>`;
       return;
@@ -518,11 +516,12 @@ class MobilityTrackerCard extends HTMLElement {
       const whenStr = when
         ? when.toLocaleString("de-DE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })
         : "";
+      const text = entry.message || entry.name || "";
       return `
         <div class="ledger-row">
-          <div class="ledger-icon">📘</div>
+          <div class="ledger-icon">${ROUTE_ICON}</div>
           <div class="ledger-main">
-            <div class="ledger-msg">${this._escape(entry.message || "")}</div>
+            <div class="ledger-msg">${this._escape(text)}</div>
             <div class="ledger-time">${whenStr}</div>
           </div>
         </div>`;
@@ -536,5 +535,5 @@ window.customCards = window.customCards || [];
 window.customCards.push({
   type: "mobility-tracker-card",
   name: "Klima-Sparbuch",
-  description: "Trackt CO2, Bäume-Äquivalent und Spritgeld für zu Fuß oder mit dem Rad zurückgelegte Wege."
+  description: "Trackt CO2, Bäume-Äquivalent und Spritgeld für klimafreundlich (statt mit dem Auto) zurückgelegte Wege."
 });

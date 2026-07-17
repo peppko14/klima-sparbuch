@@ -17,10 +17,13 @@ views:
         # und deinen Kraftstoff (z. B. e5, e10 oder diesel) - findest du unter
         # Entwicklerwerkzeuge > Zustände, Filter "tankerkoenig".
         fuel_price_entity: sensor.tankerkoenig_deine_tankstelle_e10
+        # km ist jeweils der EINFACHE Weg (nur eine Richtung). Beim Buchen
+        # per Klick verdoppelt die Karte den Wert automatisch (Hin+Rück).
+        # Beliebig viele Presets möglich - einfach weitere Einträge ergänzen.
         routes:
           - name: Weg zur Kita
             km: 1.2
-            mode: walk
+          - name: Weg zum Einkauf
+            km: 2.0
           - name: Weg zur Arbeit
             km: 4.5
-            mode: bike
