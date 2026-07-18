@@ -13,10 +13,10 @@ views:
         co2_entity: sensor.mobility_co2_saved
         trees_entity: sensor.mobility_trees_saved
         money_entity: input_number.mobility_total_money_saved
-        # Entity-ID der Tankerkönig-Integration für deine Wunsch-Tankstelle
-        # und deinen Kraftstoff (z. B. e5, e10 oder diesel) - findest du unter
-        # Entwicklerwerkzeuge > Zustände, Filter "tankerkoenig".
-        fuel_price_entity: sensor.tankerkoenig_deine_tankstelle_e10
+        # Kraftstoffpreis: die Karte liest hier bewusst NUR den taeglich per
+        # Automation aktualisierten Helfer, kein Live-Sensor. Muss also
+        # nicht angepasst werden, solange du den Standardnamen nutzt.
+        fuel_price_entity: input_number.mobility_fuel_price
         # km ist jeweils der EINFACHE Weg (nur eine Richtung). Beim Buchen
         # per Klick verdoppelt die Karte den Wert automatisch (Hin+Rück).
         # Beliebig viele Presets möglich - einfach weitere Einträge ergänzen.

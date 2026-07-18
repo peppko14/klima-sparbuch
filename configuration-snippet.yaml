@@ -37,16 +37,17 @@ input_number:
     icon: mdi:gas-station
 
   mobility_fuel_price:
-    name: "Kraftstoffpreis (Fallback)"
+    name: "Kraftstoffpreis (Tagesbasis)"
     min: 0
     max: 5
     step: 0.01
     unit_of_measurement: "€/l"
     initial: 1.75
     icon: mdi:currency-eur
-    # Wird von der Karte nur genutzt, wenn keine Live-Preisquelle (z. B.
-    # Tankerkönig) konfiguriert ist oder diese gerade "unavailable" meldet.
-    # Manuell aktuell halten, falls keine Live-Quelle genutzt wird.
+    # Wird einmal taeglich automatisch von der Automation weiter unten mit
+    # dem aktuellen Tankerkoenig-Preis befuellt (siehe "automation:" Block).
+    # Die Karte liest bei jeder Buchung nur diesen Wert - kein Live-Abruf
+    # mehr noetig. "initial" ist nur der Startwert vor dem ersten Automations-Lauf.
 
   mobility_tree_kg_per_year:
     name: "CO2-Bindung pro Baum und Jahr"
@@ -101,4 +102,42 @@ sensor:
 # input_number-Einstellungen für g/km bzw. kg/Baum und Jahr - das ist hier
 # unkritisch, da sich diese Annahmen selten ändern. Nur der Spritpreis
 # schwankt täglich, deshalb läuft die Geld-Berechnung separat pro Buchung.
+
+# ---------------------------------------------------------------------------
+# Automation: übernimmt einmal täglich (zu einer Uhrzeit mit sicher
+# geöffneter Tankstelle) den aktuellen Tankerkönig-Preis in den
+# input_number.mobility_fuel_price Helfer. Die Karte selbst muss dadurch
+# keinen Live-Sensor mehr abfragen - sie liest immer nur diesen einen,
+# einmal pro Tag aktualisierten Wert.
+#
+# WICHTIG: "sensor.tankerkoenig_deine_tankstelle_e10" durch deine tatsächliche
+# Tankerkönig-Entity-ID ersetzen (Entwicklerwerkzeuge > Zustände, Filter
+# "tankerkoenig"). "at: '08:00:00'" bei Bedarf an die Öffnungszeiten deiner
+# Tankstelle anpassen.
+#
+# Ist die Tankstelle genau zum Ausführungszeitpunkt geschlossen (Zustand
+# "unknown"), überspringt die Automation die Aktualisierung - der Wert vom
+# Vortag bleibt dann einfach bestehen, bis der nächste Lauf klappt.
+# ---------------------------------------------------------------------------
+
+automation:
+  - alias: "Klima-Sparbuch - Tagesspritpreis übernehmen"
+    description: >
+      Übernimmt einmal täglich den aktuellen Tankerkönig-Preis als
+      Tagesbasis für die Klima-Sparbuch-Berechnung.
+    trigger:
+      - platform: time
+        at: "08:00:00"
+    condition:
+      - condition: template
+        value_template: >
+          {{ states('sensor.tankerkoenig_deine_tankstelle_e10')
+             not in ['unknown', 'unavailable', 'none'] }}
+    action:
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.mobility_fuel_price
+        data:
+          value: "{{ states('sensor.tankerkoenig_deine_tankstelle_e10') | float }}"
+    mode: single
 

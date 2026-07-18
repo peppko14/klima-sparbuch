@@ -40,17 +40,20 @@ Home-Assistant-Logbuch geschrieben - das ist gleichzeitig das Ledger der Karte.
    die gleichen Entity-IDs achten).
 2. Home Assistant neu starten bzw. **Entwicklerwerkzeuge → YAML →
    Konfiguration neu laden**.
-3. **Live-Spritpreis einrichten (Tankerkönig):**
+3. **Tages-Spritpreis einrichten (Tankerkönig, einmal täglich statt live):**
    - Kostenlosen API-Key auf [tankerkoenig.de](https://creativecommons.tankerkoenig.de/) beantragen.
    - In Home Assistant: **Einstellungen → Geräte & Dienste → Integration hinzufügen → Tankerkönig**.
    - API-Key eingeben, gewünschte Tankstelle(n) in der Nähe auswählen.
    - Unter **Entwicklerwerkzeuge → Zustände** nach `tankerkoenig` filtern, um die
      Entity-ID für deinen Kraftstoff zu finden (z. B.
      `sensor.tankerkoenig_<stationsname>_e10`).
-   - Diese Entity-ID als `fuel_price_entity` in der Kartenkonfiguration eintragen.
-   - Ist die Tankstelle gerade geschlossen (Sensor "unavailable"), greift die
-     Karte automatisch auf `input_number.mobility_fuel_price` zurück - diesen
-     Wert also ab und zu manuell aktuell halten, falls das öfter vorkommt.
+   - Diese Entity-ID in der Automation aus `configuration-snippet.yaml`
+     ("Klima-Sparbuch - Tagesspritpreis übernehmen") eintragen. Sie übernimmt
+     den Preis einmal täglich (Standard: 08:00 Uhr) automatisch in
+     `input_number.mobility_fuel_price` - die Karte selbst muss dadurch nie
+     live abfragen, ein grober Tagespreis reicht völlig.
+   - Ist die Tankstelle genau zum Ausführungszeitpunkt geschlossen, überspringt
+     die Automation die Aktualisierung und der Vortageswert bleibt bestehen.
 4. Die Karte gemäß `dashboard-example.yaml` in ein Dashboard einfügen und die
    `routes:`-Liste an deine eigenen Wege anpassen.
 
@@ -63,8 +66,7 @@ Home-Assistant-Logbuch geschrieben - das ist gleichzeitig das Ledger der Karte.
 | `co2_entity`                 | Nein    | Sensor für CO₂ gespart (kg); ohne Angabe rechnet die Karte selbst mit Standardwerten |
 | `trees_entity`               | Nein    | Sensor für Bäume-Äquivalent                                  |
 | `money_entity`                | Nein    | `input_number`-Zähler für gespartes Spritgeld (€) - wird pro Buchung erhöht, nicht rückwirkend neu berechnet |
-| `fuel_price_entity`           | Nein    | Sensor mit dem aktuellen Spritpreis (z. B. von Tankerkönig); wird pro Buchung eingefroren |
-| `fuel_price_fallback_entity`  | Nein    | `input_number`, Default `input_number.mobility_fuel_price` - greift, wenn `fuel_price_entity` fehlt oder "unavailable" ist |
+| `fuel_price_entity`           | Nein    | `input_number`, Default `input_number.mobility_fuel_price` - Tagespreis, wird pro Buchung eingefroren |
 | `consumption_entity`          | Nein    | `input_number`, Default `input_number.mobility_fuel_consumption` |
 | `routes`                      | Nein    | Liste fester Wege: `name`, `km` (einfacher Weg) - wird beim Buchen automatisch verdoppelt (Hin+Rück). Beliebig viele Einträge möglich - für ein weiteres Preset einfach einen weiteren Eintrag in die Liste hinzufügen. |
 
@@ -73,16 +75,17 @@ Home-Assistant-Logbuch geschrieben - das ist gleichzeitig das Ledger der Karte.
 Für jede Buchung (egal ob über einen Wege-Button oder die individuelle
 Eingabe) gilt:
 
-1. Die Karte liest `fuel_price_entity` (Live-Preis, z. B. Tankerkönig) aus.
-2. Ist dieser nicht verfügbar, wird `fuel_price_fallback_entity`
-   (`input_number.mobility_fuel_price`) genutzt.
+1. Die Karte liest `fuel_price_entity` (Standard: `input_number.mobility_fuel_price`) aus.
+2. Dieser Wert wird einmal täglich per Automation aus einer Live-Quelle
+   (z. B. Tankerkönig) befüllt - die Karte selbst fragt beim Buchen nichts
+   live ab, ein grober Tagespreis reicht.
 3. Aus diesem Preis und `consumption_entity` wird der Betrag für GENAU DIESE
    Fahrt berechnet und zu `money_entity` addiert.
 
 Bereits gebuchte Fahrten werden dadurch nie rückwirkend verändert, auch wenn
 der Spritpreis später steigt oder fällt. Im Logbuch-Eintrag jeder Buchung
-steht zusätzlich, welcher Preis verwendet wurde und aus welcher Quelle
-(`live`, `manuell hinterlegt` oder `Standardwert`).
+steht zusätzlich, welcher Preis verwendet wurde (`Tagespreis` oder, falls die
+Entity mal nicht lesbar ist, `Standardwert`).
 
 ## Anpassen der Annahmen
 

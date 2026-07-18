@@ -9,12 +9,12 @@
  *  - money_entity               (input_number, Pflicht für Geld-Tracking)
  *                                  -> gespartes Spritgeld in €, wird bei jeder Buchung
  *                                     um den Betrag DIESER Fahrt erhöht (nicht neu berechnet!)
- *  - fuel_price_entity          (sensor, optional)  -> Live-Spritpreis, z. B. von der
- *                                     Tankerkönig-Integration. Wird zum Zeitpunkt jeder
- *                                     Buchung ausgelesen und für diese Fahrt "eingefroren".
- *  - fuel_price_fallback_entity (input_number, optional, Default: input_number.mobility_fuel_price)
- *                                  -> wird genutzt, wenn fuel_price_entity fehlt oder gerade
- *                                     "unavailable"/"unknown" ist (z. B. Tankstelle geschlossen).
+ *  - fuel_price_entity          (input_number, optional, Default: input_number.mobility_fuel_price)
+ *                                  -> Kraftstoffpreis der bei jeder Buchung "eingefroren" wird.
+ *                                     Wird NICHT live abgefragt, sondern einmal täglich per
+ *                                     Automation aus einer Live-Quelle (z. B. Tankerkönig)
+ *                                     befüllt - ein grober Tagespreis reicht, keine Sekunden-
+ *                                     genaue Live-Abfrage beim Buchen selbst.
  *  - consumption_entity         (input_number, optional, Default: input_number.mobility_fuel_consumption)
  *
  * Fehlen co2/trees Entities, rechnet die Karte mit eingebauten Standardwerten
@@ -66,9 +66,8 @@ class MobilityTrackerCard extends HTMLElement {
       co2_entity: "sensor.mobility_co2_saved",
       trees_entity: "sensor.mobility_trees_saved",
       money_entity: "input_number.mobility_total_money_saved",
-      fuel_price_entity: "sensor.tankerkoenig_deine_tankstelle_e10",
+      fuel_price_entity: "input_number.mobility_fuel_price",
       consumption_entity: "input_number.mobility_fuel_consumption",
-      fuel_price_fallback_entity: "input_number.mobility_fuel_price",
       routes: [
         { name: "Weg zur Kita", km: 1.2 }
       ]
@@ -85,7 +84,7 @@ class MobilityTrackerCard extends HTMLElement {
       title: "Klima-Sparbuch",
       routes: [],
       consumption_entity: "input_number.mobility_fuel_consumption",
-      fuel_price_fallback_entity: "input_number.mobility_fuel_price"
+      fuel_price_entity: "input_number.mobility_fuel_price"
     }, config);
     this._logbook = [];
     this._logbookLoaded = false;
@@ -369,22 +368,15 @@ class MobilityTrackerCard extends HTMLElement {
   }
 
   // Ermittelt den Spritpreis, der für die JETZT stattfindende Buchung
-  // eingefroren wird: bevorzugt eine Live-Quelle (z. B. Tankerkönig),
-  // sonst der manuell gepflegte Fallback-Helper, sonst ein Default.
+  // eingefroren wird. Liest bewusst nur EINEN Wert (Tagespreis, wird von
+  // einer Automation einmal täglich aus einer Live-Quelle befüllt) - kein
+  // Live-Abruf beim Buchen selbst nötig.
   _readFuelPrice() {
-    const cfg = this._config;
-    if (cfg.fuel_price_entity && this._hass.states[cfg.fuel_price_entity]) {
-      const live = this._hass.states[cfg.fuel_price_entity];
-      const liveVal = parseFloat(live.state);
-      if (!Number.isNaN(liveVal) && live.state !== "unavailable" && live.state !== "unknown") {
-        return { price: liveVal, source: "live" };
-      }
-    }
-    const fallbackId = cfg.fuel_price_fallback_entity || "input_number.mobility_fuel_price";
-    const fallbackEntity = this._hass.states[fallbackId];
-    const fallbackVal = fallbackEntity ? parseFloat(fallbackEntity.state) : NaN;
-    if (!Number.isNaN(fallbackVal)) {
-      return { price: fallbackVal, source: "fallback" };
+    const entityId = this._config.fuel_price_entity || "input_number.mobility_fuel_price";
+    const entity = this._hass.states[entityId];
+    const val = entity ? parseFloat(entity.state) : NaN;
+    if (!Number.isNaN(val)) {
+      return { price: val, source: "entity" };
     }
     return { price: DEFAULTS.fuelPriceEurPerL, source: "default" };
   }
@@ -469,7 +461,7 @@ class MobilityTrackerCard extends HTMLElement {
         });
       }
 
-      const sourceLabel = source === "live" ? "live" : source === "fallback" ? "manuell hinterlegt" : "Standardwert";
+      const sourceLabel = source === "entity" ? "Tagespreis" : "Standardwert";
       await this._hass.callService("logbook", "log", {
         name: this._config.title || "Klima-Sparbuch",
         message: `${label}: ${fmtDE(km, 1)} km gebucht · ${fmtDE(tripMoney, 2)} € gespart (Spritpreis ${fmtDE(price, 2)} €/l, ${sourceLabel})`,
