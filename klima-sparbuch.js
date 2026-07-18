@@ -478,12 +478,21 @@ class MobilityTrackerCard extends HTMLElement {
     if (!this._hass || !this._config.total_km_entity) return;
     this._logbookError = null;
     try {
-      const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-      const path = `logbook/${since}?entity=${this._config.total_km_entity}`;
+      // Bewusst OHNE "?entity=..." Filter - der serverseitige Filter hat sich
+      // als unzuverlaessig fuer logbook.log-Eintraege erwiesen. Stattdessen:
+      // alle Eintraege der letzten Tage holen und clientseitig filtern.
+      const since = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
+      const path = `logbook/${since}`;
       const entries = await this._hass.callApi("GET", path);
-      this._logbook = (entries || []).slice(-8).reverse();
+      const filtered = (entries || []).filter(
+        (e) => e.entity_id === this._config.total_km_entity
+      );
+      this._logbook = filtered.slice(-8).reverse();
       // eslint-disable-next-line no-console
-      console.debug("[klima-sparbuch] Logbuch geladen:", path, entries);
+      console.debug(
+        "[klima-sparbuch] Logbuch geladen:", path,
+        "- Treffer:", filtered.length, "von", (entries || []).length, "Eintraegen gesamt"
+      );
     } catch (err) {
       this._logbook = [];
       this._logbookError = (err && err.message) ? err.message : String(err);
