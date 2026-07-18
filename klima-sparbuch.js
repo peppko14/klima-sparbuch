@@ -487,7 +487,10 @@ class MobilityTrackerCard extends HTMLElement {
       const filtered = (entries || []).filter(
         (e) => e.entity_id === this._config.total_km_entity
       );
-      this._logbook = filtered.slice(-8).reverse();
+      // Nicht auf die Reihenfolge der API verlassen - explizit nach
+      // Zeitstempel absteigend sortieren (neueste zuerst), dann die ersten 8.
+      filtered.sort((a, b) => new Date(b.when) - new Date(a.when));
+      this._logbook = filtered.slice(0, 8);
       // eslint-disable-next-line no-console
       console.debug(
         "[klima-sparbuch] Logbuch geladen:", path,
