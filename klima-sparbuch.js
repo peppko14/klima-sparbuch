@@ -467,7 +467,11 @@ class MobilityTrackerCard extends HTMLElement {
         message: `${label}: ${fmtDE(km, 1)} km gebucht · ${fmtDE(tripMoney, 2)} € gespart (Spritpreis ${fmtDE(price, 2)} €/l, ${sourceLabel})`,
         entity_id: this._config.total_km_entity
       });
-      this._fetchLogbook();
+      // Der Recorder schreibt Logbuch-Eintraege asynchron - ein Sofort-Abruf
+      // wuerde den gerade erstellten Eintrag oft noch nicht finden. Deshalb
+      // mit Verzoegerung neu abfragen (und sicherheitshalber ein zweites Mal).
+      setTimeout(() => this._fetchLogbook(), 2500);
+      setTimeout(() => this._fetchLogbook(), 6000);
     } catch (err) {
       const errorEl = this.shadowRoot.querySelector(".form-error");
       errorEl.textContent = "Buchung fehlgeschlagen: " + (err && err.message ? err.message : err);
